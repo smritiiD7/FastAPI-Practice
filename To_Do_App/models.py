@@ -1,6 +1,6 @@
 from database import Base
 from sqlalchemy import Column, Integer, String, Boolean # type: ignore
-from pydantic import BaseModel # type: ignore
+from pydantic import BaseModel, Field # type: ignore
 
 
 class ToDos(Base):
@@ -14,7 +14,7 @@ class ToDos(Base):
 
 
 class ToDoCreate(BaseModel):
-    title: str
-    description: str
-    priority: int
-    complete: bool = False
+    title: str = Field(min_length=3)
+    description: str = Field(min_length=3, max_length=100)
+    priority: int = Field(gt=0, lt=6)
+    complete: bool 
