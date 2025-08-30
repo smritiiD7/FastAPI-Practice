@@ -1,5 +1,6 @@
+from datetime import timedelta, datetime, timezone
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from database import SessionLocal
 from models import Users
@@ -8,8 +9,12 @@ from sqlalchemy.orm import Session # type: ignore
 from starlette import status
 from  fastapi.security import OAuth2PasswordRequestForm
 from passlib.context import CryptContext
+from jose import jwt
 
 router = APIRouter()
+
+SECRET_KEY = '9f82e34b1d8e4c61a3d9bb47f2c1aa27fb451c85b2d7d0e4dce9c1a8f82d63ef'
+ALGORITHM = 'HS256'
 
 bcrypt_context=CryptContext(schemes=[ 'bcrypt' ], deprecated='auto')
 
@@ -20,6 +25,10 @@ class CreateUserRequest(BaseModel):
     last_name: str
     password: str
     role: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 def get_db():
     db = SessionLocal()
@@ -35,7 +44,14 @@ def authenticate_user(username: str, password: str, db: db_dependency):
         return False
     if not bcrypt_context.verify( password,user.hashed_password):
         return False
-    return True
+    return user
+
+def create_access_token(username: str, user_id: int, expires_delta: timedelta):
+    encode = {'sub' : username, 'id': user_id}
+    expires = datetime.now(timezone.utc) + expires_delta
+    encode.update({'exp' : expires})
+    return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+
 
 @router.post("/auth",status_code=status.HTTP_201_CREATED)
 async def create_user(create_user_request: CreateUserRequest, db: db_dependency):
@@ -52,12 +68,15 @@ async def create_user(create_user_request: CreateUserRequest, db: db_dependency)
     db.add(create_user_model)
     db.commit()
 
-@router.post("/token")
+@router.post("/token", response_model=Token)
 async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
     user =  authenticate_user(form_data.username, form_data.password, db)
     if not user:
-        return 'Failed Authentication'
-    
-
-    return 'Successful Authentication'
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(user.username, user.id, timedelta(minutes=20))
+    return {'access_token' :  token, 'token_type': 'bearer' }
 
