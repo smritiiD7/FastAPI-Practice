@@ -3,13 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Body # pyright: ign
 from typing import Annotated
 from sqlalchemy.orm import Session # type: ignore
 from starlette import status # type: ignore
-from database import SessionLocal
-from models import ToDos, ToDoCreate
+from to_do_app.database import SessionLocal
+from to_do_app.models import ToDos, ToDoCreate
+from .auth import get_current_user
 
 router = APIRouter()
-
-
-
 
 def get_db():
     db = SessionLocal()
@@ -18,25 +16,32 @@ def get_db():
     finally:
         db.close()
 db_dependency = Annotated[Session,Depends(get_db)]
+user_dependency = Annotated[dict, Depends(get_current_user)]
 
 @router.get("/",  status_code=status.HTTP_200_OK)
-async def read_All(db: db_dependency): # type: ignore
-    return db.query(ToDos).all()
+async def read_All(user: user_dependency, db: db_dependency): # type: ignore
+    if user is None:
+        raise HTTPException(status_code=401, detail='Authentication failed')
+    return db.query(ToDos).filter(ToDos.owner_id == user.get('id')).all()
 
 @router.get("/todo/{todo_id}", status_code=status.HTTP_200_OK)
-async def read_todo(db: db_dependency, todo_id: int):  # type: ignore
-    todo_model =  db.query(ToDos).filter(ToDos.id == todo_id).first()
+async def read_todo(user: user_dependency, db: db_dependency, todo_id: int):  # type: ignore
+    if user is None:
+        raise HTTPException(status_code=401, detail='Authentication failed')
+    todo_model =  db.query(ToDos).filter(ToDos.id == todo_id).filter(ToDos.owner_id == user.get('id')).first()
     if todo_model is not None:
         return todo_model
     raise HTTPException(status_code=404, detail = 'Todo not found')
 
 @router.post("/todo/add", status_code=status.HTTP_201_CREATED)
-async def add_task(db: db_dependency, todo: ToDoCreate ): # type: ignore
+async def create_task(user: user_dependency, db: db_dependency, todo: ToDoCreate ): # type: ignore
+    if user is None:
+        raise HTTPException(status_code=401, detail='Authentication failed')
     to_do_model = ToDos ( #Use SQLAlchemy model here
         title = todo.title,
         description = todo.description,
         priority = todo.priority,
-        complete = todo.complete
+        complete = todo.complete, owner_id=user.get('id')
     )
     db.add(to_do_model)
     db.commit()
@@ -46,8 +51,10 @@ async def add_task(db: db_dependency, todo: ToDoCreate ): # type: ignore
     
 
 @router.put("/todo/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def update_todo(db: db_dependency, todo: ToDoCreate, todo_id: int = Path(gt=0)):
-    todo_model = db.query(ToDos).filter(ToDos.id == todo_id).first()
+async def update_todo(user: user_dependency,db: db_dependency, todo: ToDoCreate, todo_id: int = Path(gt=0)):
+    if user is None:
+        raise HTTPException(status_code=401, detail='Authentication failed')
+    todo_model = db.query(ToDos).filter(ToDos.id == todo_id).filter(ToDos.owner_id == user.get('id')).first()
     if todo_model is None:
         raise HTTPException(status_code=404, detail='To Do not found.')
     todo_model.title = todo.title
@@ -60,10 +67,12 @@ async def update_todo(db: db_dependency, todo: ToDoCreate, todo_id: int = Path(g
     db.commit()
     
 @router.delete("/todo/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_todo(db: db_dependency, todo_id: int = Path(gt=0)):
-    todo_model = db.query(ToDos).filter(ToDos.id == todo_id).first()
+async def delete_todo(user: user_dependency,db: db_dependency, todo_id: int = Path(gt=0)):
+    if user is None:
+        raise HTTPException(status_code=401, detail='Authentication failed')
+    todo_model = db.query(ToDos).filter(ToDos.id == todo_id).filter(ToDos.owner_id == user.get('id')).first()
     if todo_model is None:
         raise HTTPException(status_code=404, detail='Todo not found')
-    db.query(ToDos).filter(ToDos.id == todo_id).delete()
+    db.query(ToDos).filter(ToDos.id == todo_id).filter(ToDos.owner_id == user.get('id')).delete()
 
     db.commit()
