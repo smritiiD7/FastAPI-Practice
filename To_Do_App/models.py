@@ -1,4 +1,4 @@
-from database import Base
+from to_do_app.database import Base
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey # type: ignore
 from pydantic import BaseModel, Field # type: ignore
 
