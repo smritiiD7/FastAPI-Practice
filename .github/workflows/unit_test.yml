@@ -1,0 +1,57 @@
+name: Unit-Test pipeline and publish results
+
+on:
+  workflow_dispatch:   # manual run
+  pull_request:        # auto run only on PRs into master
+    branches:
+      - main
+
+jobs:
+  unit-tests-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+
+      - name: Run tests and generate JUnit XML
+        run: |
+          pytest --junitxml=report.xml || true
+
+      - name: Parse test results
+        id: parse
+        run: |
+          python << 'EOF'
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse("report.xml")
+          root = tree.getroot()
+
+          total = int(root.attrib["tests"])
+          failures = int(root.attrib.get("failures", 0))
+          errors = int(root.attrib.get("errors", 0))
+          skipped = int(root.attrib.get("skipped", 0))
+          passed = total - failures - errors - skipped
+
+          summary = f"🧪 *Test Report*:\n✅ Passed: {passed}\n❌ Failed: {failures + errors}\n⚠️ Skipped: {skipped}\n📊 Total: {total}"
+
+          with open("slack_msg.txt", "w") as f:
+              f.write(summary)
+          EOF
+
+      - name: Send Slack Notification
+        uses: docker://technosophos/slack-notify
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_MESSAGE_FILE: slack_msg.txt
